@@ -2,71 +2,11 @@ import os
 import sys
 import cv2
 import numpy as np
-import time
-import piexif
 from PyQt5.QtCore import Qt, QRectF, QTimer
 from PyQt5.QtGui import QPixmap, QImage, QPainter, QColor, QPen, QIntValidator
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QPushButton,
                              QVBoxLayout, QWidget, QHBoxLayout, QInputDialog, QLineEdit, QLabel, QGroupBox, QFormLayout,
                              QMessageBox)
-
-def detect_area(image):
-    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-
-    # Aplicar desenfoque para suavizar la imagen
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-
-    # Aumentar el umbral para detectar más bordes, en especial para fondos blancos
-    edges = cv2.Canny(blurred, 100, 200)  # Umbrales más altos
-
-    # Cerrar los contornos para unir líneas separadas
-    kernel = np.ones((5, 5), np.uint8)
-    closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
-
-    # cv2.imwrite("debug_edges.jpg", edges)
-    # cv2.imwrite("debug_contours.jpg", closed)
-
-    # Verificar si se encontraron contornos
-    contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    if contours:
-        valid_contours = []
-
-        # Definir el porcentaje estimado para las áreas falsas en las esquinas
-        width, height = image.shape[1], image.shape[0]
-        margin_width = int(width * 0.45)  # 45% del ancho
-
-        for contour in contours:
-            # Obtener el rectángulo ajustado alrededor del contorno
-            x, y, w, h = cv2.boundingRect(contour)
-
-            # Excluir las áreas en las esquinas derechas (márgenes falsos)
-            if x + w < width - margin_width:
-                valid_contours.append((x, y, w, h))
-
-        if valid_contours:
-            # Obtener el rectángulo envolvente de todas las áreas válidas
-            all_x = [x for x, y, w, h in valid_contours]
-            all_y = [y for x, y, w, h in valid_contours]
-            # all_w = [w for x, y, w, h in valid_contours]
-            # all_h = [h for x, y, w, h in valid_contours]
-
-            # Rectángulo envolvente
-            min_x = min(all_x)
-            min_y = min(all_y)
-            max_x = max([x + w for x, y, w, h in valid_contours])
-            max_y = max([y + h for x, y, w, h in valid_contours])
-
-            # Ajustar el tamaño del área detectada
-            adjusted_width = max_x - min_x
-            adjusted_height = max_y - min_y
-
-            return QRectF(min_x - 10, min_y - 10, adjusted_width + 10, adjusted_height + 10)
-
-    else:
-        print("No se detectaron contornos válidos.")
-        return None
-
 
 def detect_ticket_area(image):
     gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -77,7 +17,7 @@ def detect_ticket_area(image):
 
     # Aplicar el resto del proceso solo a la ROI
     blurred = cv2.GaussianBlur(roi, (5, 5), 0)
-    edges = cv2.Canny(blurred, 100, 280)
+    edges = cv2.Canny(blurred, 100, 250)
 
     # Cerrar los contornos para unir líneas separadas
     kernel = np.ones((5, 5), np.uint8)
@@ -307,33 +247,6 @@ class TicketCropper(QMainWindow):
             self.file_name_label.setText(f'Archivo: {self.image_files[self.current_index]}')
             self.custom_filename_input.setText("")
 
-    # def resizeEvent(self, event):
-    #     # Llamar a la actualización del área seleccionada
-    #     if self.image_view.selection_rect:
-    #         self.update_selection_area()
-    #
-    #     # Llamar al evento de redimensionamiento de la ventana
-    #     super().resizeEvent(event)
-    #
-    # def update_selection_area(self):
-    #     # Verificar si hay un área seleccionada
-    #     if self.image_view.selection_rect:
-    #         # Obtener la transformación de la vista (escala)
-    #         transform = self.image_view.transform()
-    #         scale_x = transform.m11()  # Factor de escala en X
-    #         scale_y = transform.m22()  # Factor de escala en Y
-    #
-    #         # Calcular las nuevas coordenadas para la selección
-    #         new_left = self.image_view.selection_rect.left() * scale_x
-    #         new_top = self.image_view.selection_rect.top() * scale_y
-    #         new_width = self.image_view.selection_rect.width() * scale_x
-    #         new_height = self.image_view.selection_rect.height() * scale_y
-    #
-    #         # Actualizar la posición de la zona seleccionada
-    #         self.image_view.selection_rect = QRectF(new_left, new_top, new_width, new_height)
-    #
-    #         # Redibujar la vista
-    #         self.image_view.viewport().update()  # Forzar la actualización para mostrar el rectángulo actualizado
     def mark_detected_area(self, image):
         auto_rect = detect_ticket_area(image)
         if auto_rect:
@@ -356,13 +269,6 @@ class TicketCropper(QMainWindow):
             adjusted_height = auto_rect.height() * scale_y
 
             adjusted_rect = QRectF(adjusted_left, adjusted_top, adjusted_width, adjusted_height)
-
-            # Trazas de depuración
-            # print(f"--- DEBUG ---")
-            # print(f"Scale factors: scale_x={scale_x}, scale_y={scale_y}")
-            # print(f"Offset: offset_x={offset_x}, offset_y={offset_y}")
-            # print(f"Original detected rect: {auto_rect}")
-            # print(f"Adjusted rect: {adjusted_rect}")
 
             self.image_view.selection_rect = adjusted_rect
             self.image_view.viewport().update()
@@ -416,26 +322,6 @@ class TicketCropper(QMainWindow):
             return
 
         cv2.imwrite(save_path, cropped_image, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
-
-        # Obtener la fecha de creación del archivo original
-        created_time = time.strftime("%Y:%m:%d %H:%M:%S", time.localtime(os.path.getctime(image_path)))
-
-        # Cargar metadatos existentes (si los hay)
-        exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}, "thumbnail": None}
-
-        if os.path.exists(save_path):
-            try:
-                exif_dict = piexif.load(save_path)
-            except Exception:
-                pass  # Si no hay metadatos, seguimos adelante
-
-        # Asignar nuevos metadatos personalizados
-        exif_dict["0th"][piexif.ImageIFD.ImageDescription] = f"Original File: {os.path.basename(image_path)}".encode("utf-8")
-        exif_dict["0th"][piexif.ImageIFD.DateTime] = created_time.encode("utf-8")
-
-        # Insertar los metadatos en la imagen sin recomprimir
-        exif_bytes = piexif.dump(exif_dict)
-        piexif.insert(exif_bytes, save_path)
 
         self.next_image()  # Avanzar automáticamente a la siguiente imagen después de guardar
 
